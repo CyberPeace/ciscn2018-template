@@ -36,17 +36,16 @@ class WebChecker:
         self.csrfname = csrfname
         self.integral = None
         self.session = req.session()
-    
+
     def _generate_randstr(self, len = 10):
         return ''.join(random.sample(string.ascii_letters, len))
 
-    def _get_uuid(self):
-        res = self.session.get(self.url + 'login')
-        dom = PQ(res.text)
+    def _get_uuid(self, html):
+        dom = PQ(html)
         return dom('form canvas').attr('rel')
 
-    def _get_answer(self):
-        uuid = self._get_uuid()
+    def _get_answer(self, html):
+        uuid = self._get_uuid(html)
         answer = {}
         with open('./ans/ans%s.txt' % uuid, 'r') as f:
             for line in f.readlines():
@@ -72,8 +71,9 @@ class WebChecker:
 
     def login_test(self):
         rs = self.session.get(self.url + 'login')
-        token = self._get_token(rs.text)
-        x,y = self._get_answer()
+        html = rs.text
+        token = self._get_token(html)
+        x,y = self._get_answer(html)
         rs = self.session.post(url=self.url + 'login', data={
             self.csrfname: token,
             "username": self.username,
@@ -95,8 +95,9 @@ class WebChecker:
 
     def register_test(self, invite = ''):
         rs = self.session.get(self.url + 'register')
-        token = self._get_token(rs.text)
-        x,y = self._get_answer()
+        html = rs.text
+        token = self._get_token(html)
+        x,y = self._get_answer(html)
         rs = self.session.post(url=self.url + 'register', data={
             self.csrfname: token,
             "username": self.username,
@@ -123,9 +124,10 @@ class WebChecker:
         integral = self._get_user_integral()
         iv = req.session()
         res = iv.get(self.url + 'register')
-        token = self._get_token(res.text)
+        html = res.text
+        token = self._get_token(html)
         password = self._generate_randstr(10)
-        x,y = self._get_answer()
+        x,y = self._get_answer(html)
         res = iv.post(url=self.url + 'register', data={
             self.csrfname: token,
             "username": self._generate_randstr(6),
@@ -158,8 +160,9 @@ class WebChecker:
         if len(success):
             newPass = req.session()
             rs = newPass.get(self.url + 'login')
-            new_token = self._get_token(rs.text)
-            x,y = self._get_answer()
+            html = rs.text
+            new_token = self._get_token(html)
+            x,y = self._get_answer(html)
             rs = newPass.post(url=self.url + 'login', data={
                 self.csrfname: new_token,
                 "username": self.username,
@@ -183,8 +186,9 @@ class WebChecker:
 
     def reset_password_test(self):
         res = self.session.get(self.url + 'pass/reset')
-        token = self._get_token(res.text)
-        x,y = self._get_answer()
+        html = res.text
+        token = self._get_token(html)
+        x,y = self._get_answer(html)
         rs = self.session.post(self.url + 'pass/reset', data={
             self.csrfname: token,
             'mail': self.mail,
@@ -210,7 +214,7 @@ class WebChecker:
         else:
             print "[-] Commodity list Failed."
             return False
-        
+
     def pay_test(self):
         integral = self._get_user_integral()
         rs = self.session.get(self.url + 'info/1')
@@ -263,7 +267,7 @@ class WebChecker:
             return True
         print '[-] Shopcar Pay Failed'
         return False
-    
+
     def shopcar_add_test(self):
         rs = self.session.get(self.url + 'shop')
         dom = PQ(rs.text)
@@ -295,7 +299,7 @@ def checker(ip, port, csrfname):
         check.reset_password_test()
         check.second_kill_test()
         check.shopcar_add_test()
-        check.shopcar_pay_test() 
+        check.shopcar_pay_test()
         print '[-] Done'
     except Exception as ex:
         return '[!] Error, Unknown Exception,' + str(ex)
@@ -308,4 +312,4 @@ if __name__ == '__main__':
     ip = sys.argv[1]
     port = sys.argv[2]
     csrfname = sys.argv[3]
-    print(checker(ip, port, csrfname))
+    checker(ip, port, csrfname)
