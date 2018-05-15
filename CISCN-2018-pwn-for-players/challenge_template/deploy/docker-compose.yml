@@ -1,0 +1,7 @@
+version: "3"
+services:
+  helloworld:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "1337:1337"
