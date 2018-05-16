@@ -180,6 +180,7 @@ class WebChecker:
             except:
                 pass
             print '[+] Change Password Success'
+            self.session = newPass;
             return True
         print '[-] Change Password Failed'
         return False
