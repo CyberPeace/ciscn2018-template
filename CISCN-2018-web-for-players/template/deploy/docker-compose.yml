@@ -4,3 +4,4 @@ services:
     build: .
     ports:
       - "80:8233"
+      - "22:22"
