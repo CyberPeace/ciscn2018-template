@@ -1,3 +1,5 @@
+import random
+import time
 import uuid
 import socket
 import struct
@@ -32,6 +34,7 @@ def u64(num_byte):
 
 
 SERVICE_PORT = 1337
+REMOTE_HOST = "localhost"
 MAGIC_SEND = b'RPCM'
 MAGIC_RECV = B'RPCN'
 
@@ -201,8 +204,8 @@ class RpcConnection(object):
 
 
 class RpcClient(object):
-    def __init__(self, host, reply_to=None):
-        self.conn = RpcConnection(host, SERVICE_PORT)
+    def __init__(self, host=REMOTE_HOST, port=SERVICE_PORT, reply_to=None):
+        self.conn = RpcConnection(host, port)
         if reply_to is None:
             reply_to_queue = self.conn.send_with_result(RpcDeclarePacket().into())
             self.reply_to = reply_to_queue.result_bytes.decode('UTF-8')
@@ -237,3 +240,178 @@ class RpcClient(object):
 
     def close(self):
         self.conn.close()
+
+SYMBOLS = [
+    '+',
+    '-',
+    '*',
+    '/',
+]
+
+def test_case(func):
+    def inner_func(*args, **kwargs):
+        print('running %s' % func.__name__)
+        func(*args, **kwargs)
+    return inner_func
+
+def rand():
+    return random.randint(0, 1231211)
+
+
+def gen_add_expr():
+    return '{} + {}'.format(
+        rand(),
+        rand()
+    )
+
+
+def gen_random_expr():
+    expr = str(rand())
+    for i in range(random.randint(0, 10)):
+        expr += '{} {}'.format(
+            random.choice(SYMBOLS),
+            rand()
+        )
+    return expr
+
+
+@test_case
+def basic_test(host=REMOTE_HOST, port=SERVICE_PORT):
+    client = RpcClient(host, port)
+    expr = '{} * {} + {} - {} * ({} + {})'.format(
+        rand(),
+        rand(),
+        rand(),
+        rand(),
+        rand(),
+        rand(),
+    )
+    res = client.call(expr)
+    assert(res == int(eval(expr)))
+    client.close()
+
+
+@test_case
+def basic_queue_test(host=REMOTE_HOST, port=SERVICE_PORT):
+    client = RpcClient(host, port)
+    expr1 = gen_add_expr()
+    expr2 = gen_add_expr()
+    id1 = client.call_request(expr1)
+    id2 = client.call_request(expr2)
+    time.sleep(3)
+    try:
+        client.try_retrieve(id2)
+        assert(False)
+    except RpcPacketUnavailableException:
+        pass
+    res = client.try_retrieve(id1)
+    assert(int(res.result_bytes) == eval(expr1))
+    res = client.try_retrieve(id2)
+    assert(int(res.result_bytes) == eval(expr2))
+    client.close()
+
+
+@test_case
+def random_queue_test(client=None, host=REMOTE_HOST, port=SERVICE_PORT):
+    if client is None:
+        client = RpcClient(host, port)
+    queue = []
+    for i in range(random.randint(5, 20)):
+        if random.random() < 0.25 and len(queue) > 0:
+            time.sleep(1)
+            cur_head = queue[0]
+            cur_id = cur_head[0]
+            cur_expr = cur_head[1]
+            print(cur_expr)
+            res = client.try_retrieve(cur_id)
+            assert(int(res.result_bytes) == eval(cur_expr))
+            queue = queue[1:]
+        else:
+            expr = gen_random_expr()
+            queue.append((client.call_request(expr), expr.replace('/', '//')))
+    while len(queue) > 0:
+        time.sleep(1)
+        cur_head = queue[0]
+        cur_id = cur_head[0]
+        cur_expr = cur_head[1]
+        res = client.try_retrieve(cur_id)
+        assert(int(res.result_bytes) == eval(cur_expr))
+        queue = queue[1:]
+
+    client.close()
+
+
+def random_queue_stoppable_test(client=None, host=REMOTE_HOST, port=SERVICE_PORT):
+    if client is None:
+        client = RpcClient(host, port)
+    queue = []
+    for i in range(random.randint(5, 20)):
+        if random.random() < 0.5:
+            yield
+        if random.random() < 0.25 and len(queue) > 0:
+            time.sleep(1)
+            cur_head = queue[0]
+            cur_id = cur_head[0]
+            cur_expr = cur_head[1]
+            print(cur_expr)
+            res = client.try_retrieve(cur_id)
+            assert(int(res.result_bytes) == eval(cur_expr))
+            queue = queue[1:]
+        else:
+            expr = gen_random_expr()
+            queue.append((client.call_request(expr), expr.replace('/', '//')))
+    while len(queue) > 0:
+        time.sleep(1)
+        cur_head = queue[0]
+        cur_id = cur_head[0]
+        cur_expr = cur_head[1]
+        res = client.try_retrieve(cur_id)
+        assert(int(res.result_bytes) == eval(cur_expr))
+        queue = queue[1:]
+
+    client.close()
+
+
+@test_case
+def seperated_provider_test(host=REMOTE_HOST, port=SERVICE_PORT):
+    client1 = RpcClient(host, port)
+    client2 = RpcClient(host, port)
+    random_queue_test(client1, host=host, port=port)
+    random_queue_test(client2, host=host, port=port)
+
+
+@test_case
+def crossed_provider_test(host=REMOTE_HOST, port=SERVICE_PORT):
+    client1 = RpcClient(host, port)
+    client2 = RpcClient(host, port)
+    test1 = random_queue_stoppable_test(client1, host=host, port=port)
+    test2 = random_queue_stoppable_test(client2, host=host, port=port)
+    next(test1)
+    next(test2)
+
+    stop1 = False
+    stop2 = False
+    while not stop1 or not stop2:
+        if not stop1:
+            try:
+                print('executing thread1')
+                next(test1)
+            except StopIteration:
+                stop1 = True
+        if not stop2:
+            try:
+                print('executing thread2')
+                next(test2)
+            except StopIteration:
+                stop2 = True
+
+
+def checker(host=REMOTE_HOST, port=SERVICE_PORT):
+    basic_test(host, port)
+    basic_queue_test(host, port)
+    random_queue_test(host=host, port=port)
+    seperated_provider_test(host, port)
+    crossed_provider_test(host, port)
+
+if __name__ == '__main__':
+    checker(REMOTE_HOST, SERVICE_PORT)
